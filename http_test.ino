@@ -16,6 +16,8 @@ const char kPath[] = "/";
 const int kNetworkTimeout = 5*1000;
 // Number of milliseconds to wait if no data is available before trying again
 const int kNetworkDelay = 200;
+// If Content-Length isn't given this is used for the max body length
+const int fallbackContentLength = 1024;
 
 void setup() {
   Serial.begin(9600);
@@ -62,7 +64,11 @@ void loop() {
 
         // Now we've got to the body, so we can print it out
         unsigned long timeoutStart = millis();
+        if (bodyLen <= 0)
+          bodyLen = fallbackContentLength;
+
         char body[bodyLen+1];
+
         char c;
         int i = 0;
         // Whilst we haven't timed out & haven't reached the end of the body
@@ -74,17 +80,16 @@ void loop() {
             c = http.read();
             body[i] = c;
             i++;
-
-            if (http.endOfBodyReached()) {
-              //Workaround for TCPClient.Connected() bug
-              http.stop();
-            }
-
             // We read something, reset the timeout counter
             timeoutStart = millis();
           }
           else
           {
+            //Workaround for TCPClient.Connected() bug
+            if (http.endOfBodyReached()) {
+              Serial.println("End of body reached according to http.endOfBodyReached()");
+              http.stop();
+            }
             // We haven't got any data, so let's pause to allow some to
             // arrive
             delay(kNetworkDelay);
