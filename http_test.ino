@@ -17,7 +17,7 @@ const int kNetworkTimeout = 5*1000;
 // Number of milliseconds to wait if no data is available before trying again
 const int kNetworkDelay = 200;
 // If Content-Length isn't given this is used for the max body length
-const int fallbackContentLength = 1024;
+const int kFallbackContentLength = 1024;
 
 void setup() {
   Serial.begin(9600);
@@ -78,7 +78,9 @@ void loop() {
           if (http.available())
           {
             c = http.read();
-            body[i] = c;
+            // Let's make sure this character will fit into our char array
+            if (i <= bodyLen)
+              body[i] = c;
             i++;
             // We read something, reset the timeout counter
             timeoutStart = millis();
