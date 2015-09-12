@@ -102,6 +102,7 @@ void doGetRequest() {
               else //there was an error
               {
                 Serial.println("Error allocating memory!");
+                free(temp);
                 break;
               }
             }
