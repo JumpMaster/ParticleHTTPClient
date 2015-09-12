@@ -4,41 +4,49 @@
 
 #include "application.h"
 #include "HttpClient.h"
+
 HttpClient http;
 
-const byte kIp[] = {104, 238, 136, 31};
-const char kHostname[] = "icanhazip.com";
-// Path to download (this is the bit after the hostname in the URL
-// that you want to download
-const char kPath[] = "/";
+// If Content-Length isn't given this is used for the body length increments
+const int kFallbackContentLength = 100;
 
-// Number of milliseconds to wait without receiving any data before we give up
-const int kNetworkTimeout = 5*1000;
-// Number of milliseconds to wait if no data is available before trying again
-const int kNetworkDelay = 200;
-// If Content-Length isn't given this is used for the max body length
-const int kFallbackContentLength = 1024;
+typedef struct
+{
+  String hostname;
+  IPAddress ip;
+  String path;
+  int port;
+  String body;
+} http_request_t;
 
-void setup() {
-  Serial.begin(9600);
-  while (!Serial.available()) {
-    Serial.println("Press any key to start.");
-    Particle.process();
-    delay (1000);
-  }
-}
+/**
+ * HTTP Response struct.
+ * status  response status code.
+ * body    response body
+ */
+typedef struct
+{
+  int status;
+  String body;
+} http_response_t;
 
-void loop() {
+http_response_t response;
+http_request_t request;
+
+void doGetRequest() {
   int err = 0;
+  response.status = 0;
+  response.body = '\0';
   unsigned long httpStartTime = millis();
+
   // If only hostname is supplied a DNS lookup is used to get the IP.
   // It is faster to provide IP and hostname if possible.
 
   // Using IP
-//  err = http.get(kIp, kHostname, kPath);
+//  err = http.get(request.ip, request.hostname, request.path);
 
   // Using Hostname
-  err = http.get(kHostname, kPath);
+  err = http.get(request.hostname, request.path);
 
   if (err == 0)
   {
@@ -49,64 +57,85 @@ void loop() {
     {
       Serial.print("Got status code: ");
       Serial.println(err);
+      response.status = err;
 
-      // Usually you'd check that the response code is 200 or a
-      // similar "success" code (200-299) before carrying on,
-      // but we'll print out whatever response we get
-
-      err = http.skipResponseHeaders();
-      if (err >= 0)
+      if (err >= 200 || err < 300)
       {
-        int bodyLen = http.contentLength();
-        Serial.print("Content length is: ");
-        Serial.println(bodyLen);
-        Serial.println();
-
-        // Now we've got to the body, so we can print it out
-        unsigned long timeoutStart = millis();
-        if (bodyLen <= 0)
-          bodyLen = fallbackContentLength;
-
-        char body[bodyLen+1];
-
-        char c;
-        int i = 0;
-        // Whilst we haven't timed out & haven't reached the end of the body
-        while ( (http.connected() || http.available()) &&
-               ((millis() - timeoutStart) < kNetworkTimeout))
+        err = http.skipResponseHeaders();
+        if (err >= 0)
         {
-          if (http.available())
+          int bodyLen = http.contentLength();
+          Serial.print("Content length is: ");
+          Serial.println(bodyLen);
+
+          // To test Malloc and Remalloc
+          //bodyLen = 0;
+
+          // Now we've got to the body, so we can print it out
+          unsigned long timeoutStart = millis();
+          if (bodyLen <= 0)
+            bodyLen = kFallbackContentLength;
+
+          Serial.print("Body length is: ");
+          Serial.println(bodyLen);
+
+          char *body = (char *) malloc( sizeof(char) * ( bodyLen + 1 ) );
+
+          char c;
+          int i = 0;
+          // Whilst we haven't timed out & haven't reached the end of the body
+          while ( (http.connected() || http.available()) &&
+                 ((millis() - timeoutStart) < http.kHttpResponseTimeout))
           {
-            c = http.read();
             // Let's make sure this character will fit into our char array
-            if (i <= bodyLen)
-              body[i] = c;
-            i++;
-            // We read something, reset the timeout counter
-            timeoutStart = millis();
-          }
-          else
-          {
-            //Workaround for TCPClient.Connected() bug
-            if (http.endOfBodyReached()) {
-              Serial.println("End of body reached according to http.endOfBodyReached()");
-              http.stop();
+            if (i == bodyLen)
+            {
+              // No it won't fit. Let's try and resize our body char array
+              char *temp = (char *) realloc(body, sizeof(char) * (bodyLen+kFallbackContentLength));
+
+              if ( temp != NULL ) //resize was successful
+              {
+                Serial.println("EXTENDING: "+String(bodyLen));
+                bodyLen += kFallbackContentLength;
+                body = temp;
+              }
+              else //there was an error
+              {
+                Serial.println("Error allocating memory!");
+                break;
+              }
             }
-            // We haven't got any data, so let's pause to allow some to
-            // arrive
-            delay(kNetworkDelay);
+
+            if (http.available())
+            {
+              c = http.read();
+
+              body[i] = c;
+              i++;
+              // We read something, reset the timeout counter
+              timeoutStart = millis();
+            }
+            else
+            {
+              // We haven't got any data, so let's pause to allow some to
+              // arrive
+              delay(http.kHttpWaitForDataDelay);
+            }
           }
+          body[i] = '\0';
+          //return body;
+          response.body = String(body);
+          free(body);
         }
-        body[i] = '\0';
-        //return body;
-        Serial.println();
-        Serial.println("body variable ==");
-        Serial.print(body);
+        else
+        {
+          Serial.print("Failed to skip response headers: ");
+          Serial.println(err);
+        }
       }
       else
       {
-        Serial.print("Failed to skip response headers: ");
-        Serial.println(err);
+        Serial.print("Response code < 200 or >= 300");
       }
     }
     else
@@ -122,11 +151,30 @@ void loop() {
   }
   http.stop();
 
-  Serial.println();
+  //Serial.println();
   Serial.print("http request took : ");
   Serial.print(millis()-httpStartTime);
   Serial.println("ms");
+}
 
+void setup() {
+  Serial.begin(9600);
+
+  //request.ip = { 185, 31, 18, 133 };
+  request.hostname = "blog.particle.io";
+  request.path = "/";
+
+  while (!Serial.available()) {
+    Serial.println("Press any key to start.");
+    Particle.process();
+    delay (1000);
+  }
+}
+
+void loop() {
+  doGetRequest();
+  Serial.println("BODY == ");
+  Serial.println(response.body);
    // And just stop, now that we've tried a download
-  while(1) { Particle.process(); };
+  while(1) { Particle.process(); }
 }

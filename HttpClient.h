@@ -40,6 +40,14 @@ public:
   static const int kHttpPort = 80;
   static const char* kUserAgent;
 
+  // Number of milliseconds that we wait each time there isn't any data
+  // available to be read (during status code and header processing)
+  static const int kHttpWaitForDataDelay = 10;
+  // Number of milliseconds that we'll wait in total without receiveing any
+  // data before returning HTTP_ERROR_TIMED_OUT (during status code and header
+  // processing)
+  static const int kHttpResponseTimeout = 5*1000;
+
   HttpClient(void);
 
   /** Start a more complex request.
@@ -389,13 +397,6 @@ protected:
   void sendRequest(const char* aHttpMethod, const char* aRequestPath);
   void finishHeaders();
 
-  // Number of milliseconds that we wait each time there isn't any data
-  // available to be read (during status code and header processing)
-  static const int kHttpWaitForDataDelay = 200;
-  // Number of milliseconds that we'll wait in total without receiveing any
-  // data before returning HTTP_ERROR_TIMED_OUT (during status code and header
-  // processing)
-  static const int kHttpResponseTimeout = 5*1000;
   static const char* kContentLengthPrefix;
   typedef enum {
       eIdle,
